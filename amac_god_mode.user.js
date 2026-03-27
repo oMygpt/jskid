@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAC 培训系统 - 究极光速挂机助手
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  [精准打击] 直接操控 AMAC 原生进度上报通路 (playerLogUpdate)，绕过 canSeekable 拖拽限制，无需伪造阿里云埋点。
 // @author       Claude
 // @match        *://peixun.amac.org.cn/*
@@ -12,7 +12,7 @@
 (function() {
     'use strict';
 
-    console.log('%c--- AMAC GOD MODE v5.1 [DIRECT PROGRESS HACK] ACTIVATED ---', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+    console.log('%c--- AMAC GOD MODE v5.2 [DIRECT PROGRESS HACK] ACTIVATED ---', 'color: #00ff00; font-weight: bold; font-size: 14px;');
 
     // ============================================================
     // 1. 焦点保护：屏蔽 blur/visibilitychange 防止暂停
@@ -71,71 +71,100 @@
     }
 
     // ============================================================
-    // 3. 核心：视频加速 + 直接操控进度上报
+    // 3. 发现视频：扫描主页面 + 所有 iframe 中的 video 元素
+    //    返回 { video, mts, iframeWin } 或 null
+    // ============================================================
+    function findVideo() {
+        // 扫描所有 iframe（不限定 src）
+        var iframes = document.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            try {
+                var iframeWin = iframes[i].contentWindow;
+                var iframeDoc = iframes[i].contentDocument;
+                if (!iframeWin || !iframeDoc) continue;
+
+                var mts = iframeWin.MtsWebAliPlayer;
+                if (mts && mts.player) {
+                    var video = iframeDoc.querySelector('video');
+                    if (video) return { video: video, mts: mts, iframeWin: iframeWin };
+                }
+
+                // 也检测没有 MtsWebAliPlayer 但有 video 的 iframe
+                var v = iframeDoc.querySelector('video');
+                if (v && v.duration > 0) return { video: v, mts: null, iframeWin: iframeWin };
+            } catch(e) {}
+        }
+
+        // 主页面直接嵌入的 video
+        var mainVideo = document.querySelector('video');
+        if (mainVideo && mainVideo.duration > 0) {
+            return { video: mainVideo, mts: null, iframeWin: null };
+        }
+
+        return null;
+    }
+
+    // ============================================================
+    // 4. 核心：自动播放 + 视频加速 + 直接操控进度上报
     // ============================================================
     function hackVideoAndProgress() {
-        var iframe = document.querySelector('iframe[src*="player"]');
-        if (!iframe) return false;
+        var found = findVideo();
+        if (!found) return false;
 
-        var iframeWin, iframeDoc;
-        try {
-            iframeWin = iframe.contentWindow;
-            iframeDoc = iframe.contentDocument;
-        } catch(e) { return false; }
+        var video = found.video;
+        var mts = found.mts;
+        var iframeWin = found.iframeWin;
 
-        if (!iframeWin || !iframeDoc) return false;
-
-        var mts = iframeWin.MtsWebAliPlayer;
-        if (!mts || !mts.player) return false;
-
-        var video = iframeDoc.querySelector('video');
-        if (!video || video._godMode) return false;
+        if (video._godMode) return false;
         video._godMode = true;
 
-        var vInfo = mts._vInfo;
         var parentVideoInfo = window.videoInfo;
-        if (!vInfo || !parentVideoInfo) return false;
+        var vInfo = mts ? mts._vInfo : null;
+
+        // 无 Aliplayer 的普通 video：简单加速
+        if (!mts || !vInfo || !parentVideoInfo) {
+            console.log('%c[GOD] 发现普通视频，简单加速', 'color: #00ff00');
+            video.muted = true;
+            video.playbackRate = 16.0;
+            video.play().catch(function(){});
+            return true;
+        }
 
         var duration = vInfo.duration || video.duration || 0;
         if (duration <= 0) return false;
 
-        console.log('%c[GOD] 接管视频: 时长=' + duration + 's, 已学=' + vInfo.studySecond + 's, isFinish=' + vInfo.isFinish, 'color: #00ff00');
+        console.log('%c[GOD] 接管视频: 时长=' + duration + 's, 已学=' + vInfo.studySecond + 's, isFinish=' + vInfo.isFinish, 'color: #00ff00; font-weight: bold');
 
-        // --- 3a. 绕过 canSeekable 拖拽限制 ---
+        // --- 4a. 绕过 canSeekable 拖拽限制 ---
         mts.player.canSeekable = function() { return 1; };
-        console.log('%c[GOD] canSeekable 已解除', 'color: #00ccff');
 
-        // --- 3b. 屏蔽 iframe 内的 blur → pausePlayer ---
-        protectFocus(iframeWin);
+        // --- 4b. 屏蔽 iframe 内的 blur → pausePlayer ---
+        if (iframeWin) protectFocus(iframeWin);
 
         // 直接废掉 pausePlayer，防止任何途径触发暂停
-        mts.pausePlayer = function() {
-            console.log('%c[GOD] pausePlayer 已拦截', 'color: #ff6600');
-        };
+        mts.pausePlayer = function() {};
+        mts._pauseHooked = true;
 
-        // --- 3c. 已完成的视频：跳过，不做任何操作 ---
+        // --- 4c. 已完成的视频：跳过 ---
         if (vInfo.isFinish == 2) {
             console.log('%c[GOD] 该视频已完成，跳过', 'color: #999');
             return true;
         }
 
-        // --- 3d. 劫持 postProgress：让原生上报使用我们伪造的时间 ---
-        var fakeStudyTime = vInfo.studySecond || 0;  // 从上次学到的位置继续
+        // --- 4d. 劫持 postProgress：让原生上报使用伪造时间 ---
+        var fakeStudyTime = vInfo.studySecond || 0;
         var origPostProgress = mts.postProgress.bind(mts);
 
         mts.postProgress = function(type) {
-            // 更新 vInfo.studySecond 绕过 "无需发送" 的判断
             var prev = vInfo.studySecond;
             vInfo.studySecond = Math.max(0, fakeStudyTime - 5);
             parentVideoInfo.studySecond = vInfo.studySecond;
 
-            // 临时篡改 player.getCurrentTime 返回伪造时间
             var origGetTime = mts.player.getCurrentTime;
             mts.player.getCurrentTime = function() { return fakeStudyTime; };
 
             origPostProgress(type);
 
-            // 还原
             mts.player.getCurrentTime = origGetTime;
             vInfo.studySecond = Math.max(prev, fakeStudyTime);
             parentVideoInfo.studySecond = vInfo.studySecond;
@@ -143,34 +172,37 @@
             console.log('%c[GOD] postProgress(' + type + ') fakeTime=' + Math.floor(fakeStudyTime) + 's / ' + duration + 's', 'color: #66ccff');
         };
 
-        // --- 3e. 劫持 videoPlayEnd：上报完成但不 seek(0)，不从头播放 ---
+        // --- 4e. 劫持 videoPlayEnd：上报完成但不 seek(0) ---
         mts.videoPlayEnd = function() {
             mts.postProgress('Play End');
             clearInterval(mts.pTimer);
-            // 不执行 this.player.seek(0) 和 this.player.pause()
             console.log('%c[GOD] videoPlayEnd 已拦截（阻止 seek(0)）', 'color: #ff6600');
         };
 
-        // --- 3f. 视频静音 + 超高速播放 ---
+        // --- 4f. 视频静音 + 屏蔽原生暂停 ---
         video.muted = true;
         video.loop = false;
 
-        // 屏蔽原生暂停（防止 blur/visibilitychange 残留回调触发暂停）
         var realPause = HTMLMediaElement.prototype.pause.bind(video);
         video.pause = function() {
             if (video.ended || video._godDead) return realPause();
         };
 
-        // --- 3g. 主循环：加速视频 + 递增伪造时间 + 上报进度 ---
+        // --- 4g. 主动启动播放 ---
+        //   通过 Aliplayer 接口启动，触发完整的 play 事件链
+        //   (listennerProgress / _isPlay 状态更新等)
+        console.log('%c[GOD] 主动启动播放...', 'color: #00ff00');
+        try {
+            mts.player.play();
+        } catch(e) {
+            video.play().catch(function(){});
+        }
+
+        // --- 4h. 主循环：加速视频 + 递增伪造时间 + 上报进度 ---
         var SPEED = 16.0;
         var JUMP = 5.0;
         var REPORT_INTERVAL = 30;
         var lastReportTime = Date.now();
-
-        // 从 studySecond 位置开始播放（而不是从头）
-        if (vInfo.studySecond > 0 && video.currentTime < vInfo.studySecond - 10) {
-            try { mts.player.seek(vInfo.studySecond); } catch(e) {}
-        }
 
         var monitor = setInterval(function() {
             if (video._godDead) {
@@ -178,9 +210,11 @@
                 return;
             }
 
-            // 确保播放
+            // 确保播放：通过 Aliplayer 接口恢复，而非直接 video.play()
             if (video.paused && !video.ended) {
-                video.play().catch(function(){});
+                try { mts.player.play(); } catch(e) {
+                    video.play().catch(function(){});
+                }
             }
 
             // 检查视频是否播完
@@ -197,7 +231,6 @@
 
             var remain = video.duration - video.currentTime;
 
-            // 最后15秒切回1x，让原生 ended 事件自然触发
             if (remain < 15) {
                 video.playbackRate = 1.0;
             } else {
@@ -207,20 +240,15 @@
                 }
             }
 
-            // 递增伪造学习时间
             fakeStudyTime += 1;
             if (fakeStudyTime > duration) fakeStudyTime = duration;
 
-            // 定期上报
             var now = Date.now();
             if (now - lastReportTime >= REPORT_INTERVAL * 1000) {
                 lastReportTime = now;
                 mts.postProgress('Interval-progress');
             }
         }, 1000);
-
-        // 立即上报一次
-        mts.postProgress('Interval-start');
 
         // 双保险：直接调用 playerLogUpdate
         var directReport = setInterval(function() {
@@ -250,43 +278,50 @@
     }
 
     // ============================================================
-    // 4. 启动引擎（持续扫描，自动识别新视频）
+    // 5. 启动引擎（持续扫描，自动识别新视频）
     // ============================================================
     function boot() {
         protectFocus(window);
         setupPopupHandler();
 
-        // 记录当前已处理的 iframe src，用于检测页面切换
+        // 追踪上一次处理的 video 元素引用，检测新视频出现
+        var lastVideoRef = null;
         var lastIframeSrc = '';
 
         setInterval(function() {
             protectFocus(window);
 
-            // 持续扫描 iframe 焦点保护
-            try {
-                var iframe = document.querySelector('iframe[src*="player"]');
-                if (iframe && iframe.contentWindow) {
-                    protectFocus(iframe.contentWindow);
+            // 持续扫描所有 iframe 的焦点保护 + pausePlayer hook
+            var iframes = document.querySelectorAll('iframe');
+            for (var i = 0; i < iframes.length; i++) {
+                try {
+                    var fw = iframes[i].contentWindow;
+                    if (!fw) continue;
+                    protectFocus(fw);
 
-                    // 持续废掉 pausePlayer（iframe 重载后需要重新 hook）
-                    var mts = iframe.contentWindow.MtsWebAliPlayer;
+                    var mts = fw.MtsWebAliPlayer;
                     if (mts && !mts._pauseHooked) {
                         mts._pauseHooked = true;
                         mts.pausePlayer = function() {};
                     }
+                } catch(e) {}
+            }
 
-                    // 检测 iframe src 变化（页面切换到新视频）
-                    var currentSrc = iframe.src || '';
-                    if (currentSrc !== lastIframeSrc) {
-                        lastIframeSrc = currentSrc;
-                        // iframe 变了，重置 _godMode 标记让 hack 重新生效
-                        try {
-                            var v = iframe.contentDocument.querySelector('video');
-                            if (v) v._godMode = false;
-                        } catch(e) {}
+            // 检测视频变化：iframe src 变化 或 video 元素更换
+            var found = findVideo();
+            if (found) {
+                var currentVideo = found.video;
+                var currentIframeSrc = found.iframeWin ? (found.iframeWin.location.href || '') : '';
+
+                // video 元素变了（新页面/新章节），重置让 hack 重新生效
+                if (currentVideo !== lastVideoRef || currentIframeSrc !== lastIframeSrc) {
+                    if (currentVideo._godMode && currentVideo !== lastVideoRef) {
+                        currentVideo._godMode = false;
                     }
+                    lastVideoRef = currentVideo;
+                    lastIframeSrc = currentIframeSrc;
                 }
-            } catch(e) {}
+            }
 
             // 尝试接管视频
             hackVideoAndProgress();
