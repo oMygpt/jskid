@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAC 培训系统 - 究极光速挂机助手
 // @namespace    http://tampermonkey.net/
-// @version      6.0
+// @version      6.2
 // @description  从第一性原理设计：递归扫描自动播放 + AMAC进度直通上报 + 全自动导航
 // @author       Claude
 // @match        *://peixun.amac.org.cn/*
@@ -12,7 +12,7 @@
 (function() {
     'use strict';
 
-    console.log('--- AMAC GOD MODE v6.0 ACTIVATED ---');
+    console.log('--- AMAC GOD MODE v6.2 ACTIVATED ---');
 
     // =============================================
     // A. 焦点屏蔽 — 立即执行，不等任何 DOM
@@ -106,14 +106,29 @@
             if (win) blockEvents(win);
 
             // 接管所有 video
-            root.querySelectorAll('video').forEach(hackVideo);
+            var videos = root.querySelectorAll('video');
+            videos.forEach(hackVideo);
 
             // 递归进入 iframe
             root.querySelectorAll('iframe').forEach(function(f) {
                 try {
-                    var doc = f.contentDocument || f.contentWindow.document;
-                    if (doc) scan(doc);
-                } catch(e) {}
+                    var doc = null;
+                    try { doc = f.contentDocument; } catch(e1) {}
+                    if (!doc) try { doc = f.contentWindow.document; } catch(e2) {}
+                    if (doc) {
+                        // 直接在 iframe 里找 video
+                        doc.querySelectorAll('video').forEach(hackVideo);
+                        scan(doc);
+                    }
+                } catch(e) {
+                    // iframe 不可访问，尝试通过 contentWindow 注入
+                    try {
+                        var fw = f.contentWindow;
+                        if (fw && fw.document) {
+                            fw.document.querySelectorAll('video').forEach(hackVideo);
+                        }
+                    } catch(e3) {}
+                }
             });
         } catch(e) {}
     }
@@ -170,8 +185,42 @@
                     return;
                 }
 
-                // 用 Aliplayer 接口启动播放（触发 play 事件 → listennerProgress）
+                // 用 Aliplayer 接口启动播放
                 try { mts.player.play(); } catch(e) {}
+
+                // 在 iframe 上下文中直接加速视频
+                // Tampermonkey 跨 iframe 设属性无效，必须用 iframe 自己的 setInterval
+                try {
+                    var videoEl = mts.player.tag || fw.document.querySelector('video');
+                    if (videoEl) {
+                        videoEl.muted = true;
+                        // 拦截暂停
+                        var origPause = videoEl.pause;
+                        videoEl.pause = function() {
+                            if (videoEl.ended || videoEl._done) return origPause.apply(this, arguments);
+                        };
+                        videoEl.addEventListener('ended', function() { videoEl._done = true; });
+
+                        // 用 iframe 的 setInterval 执行加速循环
+                        fw.setInterval(function() {
+                            if (videoEl._done || videoEl.ended) return;
+                            if (videoEl.paused) try { videoEl.play(); } catch(e) {}
+                            var remain = videoEl.duration - videoEl.currentTime;
+                            if (remain < 15) {
+                                videoEl.playbackRate = 1.0;
+                            } else {
+                                videoEl.playbackRate = 16.0;
+                                if (videoEl.readyState >= 2) videoEl.currentTime += 5.0;
+                            }
+                        }, 1000);
+
+                        console.log('[GOD] 视频加速已启动: dur=' + Math.floor(videoEl.duration || 0) + 's, 使用 iframe 上下文');
+                    } else {
+                        console.log('[GOD] 未找到 video 元素');
+                    }
+                } catch(e) {
+                    console.log('[GOD] 视频加速失败:', e.message);
+                }
 
                 // 劫持 videoPlayEnd：禁止 seek(0)
                 mts.videoPlayEnd = function() {
