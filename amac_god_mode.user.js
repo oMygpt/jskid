@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAC 培训系统 - 究极光速挂机助手
 // @namespace    http://tampermonkey.net/
-// @version      6.2
+// @version      6.3
 // @description  从第一性原理设计：递归扫描自动播放 + AMAC进度直通上报 + 全自动导航
 // @author       Claude
 // @match        *://peixun.amac.org.cn/*
@@ -12,7 +12,7 @@
 (function() {
     'use strict';
 
-    console.log('--- AMAC GOD MODE v6.2 ACTIVATED ---');
+    console.log('--- AMAC GOD MODE v6.3 ACTIVATED ---');
 
     // =============================================
     // A. 焦点屏蔽 — 立即执行，不等任何 DOM
@@ -230,7 +230,10 @@
                 };
 
                 // 劫持 postProgress：用伪造的学习时间
+                // fakeTime 跟踪视频真实播放进度，而不是每秒+1
                 var fakeTime = parseInt(vInfo.studySecond) || 0;
+                var _videoRef = mts.player.tag || fw.document.querySelector('video');
+                var _completed = false;
                 var origPost = mts.postProgress.bind(mts);
 
                 mts.postProgress = function(type) {
@@ -250,42 +253,93 @@
                     console.log('[GOD] postProgress(' + type + ') fake=' + Math.floor(fakeTime) + '/' + duration);
                 };
 
-                // 每秒递增伪造时间
-                var tickTimer = setInterval(function() {
-                    fakeTime += 1;
-                    if (fakeTime > duration) fakeTime = duration;
-                    if (fakeTime >= duration) {
-                        clearInterval(tickTimer);
-                        // 触发完成上报
-                        mts.postProgress('Play End');
-                        setTimeout(function() {
-                            if (vInfo.isFinish != 2) {
-                                try {
-                                    parentVI.studySecond = Math.max(0, duration - 5);
-                                    window.playerLogUpdate('2', duration);
-                                    console.log('[GOD] playerLogUpdate(2) 完成!');
-                                } catch(e) {}
+                // 完成上报序列
+                function triggerCompletion() {
+                    if (_completed) return;
+                    _completed = true;
+                    fakeTime = duration;
+                    console.log('[GOD] 触发完成上报序列...');
+
+                    // 1. 先通过 postProgress 上报 Play End
+                    mts.postProgress('Play End');
+
+                    // 2. 延迟后直接调 playerLogUpdate(2) 标记完成
+                    setTimeout(function() {
+                        if (vInfo.isFinish != 2) {
+                            try {
+                                parentVI.studySecond = Math.max(0, duration - 5);
+                                window.playerLogUpdate('2', duration);
+                                console.log('[GOD] playerLogUpdate(2) 完成!');
+                            } catch(e) {
+                                console.log('[GOD] playerLogUpdate(2) 失败:', e.message);
                             }
-                        }, 2000);
+                        }
+                    }, 2000);
+
+                    // 3. 再补一次确保
+                    setTimeout(function() {
+                        if (vInfo.isFinish != 2) {
+                            try {
+                                parentVI.studySecond = duration;
+                                vInfo.studySecond = duration;
+                                window.playerLogUpdate('2', duration);
+                                console.log('[GOD] playerLogUpdate(2) 二次确认!');
+                            } catch(e) {}
+                        }
+                    }, 5000);
+                }
+
+                // 每秒同步 fakeTime 到视频真实进度
+                var tickTimer = setInterval(function() {
+                    if (_completed) { clearInterval(tickTimer); return; }
+
+                    // 从视频元素获取真实播放位置
+                    var realTime = 0;
+                    try {
+                        if (_videoRef) realTime = _videoRef.currentTime || 0;
+                    } catch(e) {
+                        try { realTime = mts.player.getCurrentTime() || 0; } catch(e2) {}
+                    }
+
+                    // fakeTime 取最大值（只增不减）
+                    fakeTime = Math.max(fakeTime, realTime);
+                    if (fakeTime > duration) fakeTime = duration;
+
+                    console.log('[GOD] tick: fake=' + Math.floor(fakeTime) + '/' + duration + ' real=' + Math.floor(realTime));
+
+                    // 视频播完 → 触发完成
+                    if (fakeTime >= duration - 1) {
+                        triggerCompletion();
                     }
                 }, 1000);
 
-                // 每30秒 postProgress 上报
-                var reportTimer = setInterval(function() {
-                    if (fakeTime >= duration) { clearInterval(reportTimer); return; }
-                    mts.postProgress('Interval-progress');
-                }, 30000);
+                // 监听视频 ended 事件 → 立即触发完成
+                try {
+                    if (_videoRef) {
+                        _videoRef.addEventListener('ended', function() {
+                            console.log('[GOD] 视频 ended 事件触发');
+                            fakeTime = duration;
+                            triggerCompletion();
+                        });
+                    }
+                } catch(e) {}
 
-                // 每45秒直接 playerLogUpdate 双保险
+                // 每15秒 postProgress 上报（加密频次确保服务器收到足够进度）
+                var reportTimer = setInterval(function() {
+                    if (_completed) { clearInterval(reportTimer); return; }
+                    mts.postProgress('Interval-progress');
+                }, 15000);
+
+                // 每20秒直接 playerLogUpdate 双保险
                 var directTimer = setInterval(function() {
-                    if (fakeTime >= duration) { clearInterval(directTimer); return; }
+                    if (_completed) { clearInterval(directTimer); return; }
                     var t = Math.floor(fakeTime);
                     parentVI.studySecond = Math.max(0, t - 5);
                     vInfo.studySecond = parentVI.studySecond;
                     try { window.playerLogUpdate('1', t); } catch(e) {}
                     parentVI.studySecond = t;
                     vInfo.studySecond = t;
-                }, 45000);
+                }, 20000);
 
                 console.log('[GOD] AMAC Hook 完成: study=' + vInfo.studySecond + '/' + duration);
                 return;
