@@ -1,0 +1,35 @@
+{
+  "name": "amac-auto-browser",
+  "version": "1.0.0",
+  "description": "AMAC 培训专用自动化浏览器",
+  "main": "main.js",
+  "author": "Alone",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist-win": "electron-builder --win --x64",
+    "dist-mac": "electron-builder --mac --universal"
+  },
+  "dependencies": {
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.amac.auto",
+    "productName": "AMAC光速浏览器",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "portable",
+      "artifactName": "${productName}-Windows.exe"
+    },
+    "mac": {
+      "target": "dmg",
+      "artifactName": "${productName}-Mac.dmg"
+    }
+  }
+}
