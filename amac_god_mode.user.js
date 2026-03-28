@@ -1,32 +1,32 @@
 // ==UserScript==
-// @name         AMAC 培训系统 - 究极光速挂机助手
+// @name         AMAC培训助手
 // @namespace    http://tampermonkey.net/
-// @version      6.3
-// @description  从第一性原理设计：递归扫描自动播放 + AMAC进度直通上报 + 全自动导航
-// @author       Claude
+// @version      6.4
+// @description  AMAC培训助手
+// @author       Claude自动完成并恶意传播
 // @match        *://peixun.amac.org.cn/*
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    console.log('--- AMAC GOD MODE v6.3 ACTIVATED ---');
+    console.log('--- AMAC GOD MODE v6.4 ACTIVATED ---');
 
     // =============================================
     // A. 焦点屏蔽 — 立即执行，不等任何 DOM
     // =============================================
     // 在 document-start 阶段就拦截，确保比页面自身的 blur 处理器更早注册
-    var _block = function(e) { e.stopImmediatePropagation(); return false; };
+    var _block = function (e) { e.stopImmediatePropagation(); return false; };
     window.addEventListener('blur', _block, true);
     window.addEventListener('mouseleave', _block, true);
     window.addEventListener('focusout', _block, true);
     window.addEventListener('visibilitychange', _block, true);
     try {
-        Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-        Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-    } catch(e) {}
+        Object.defineProperty(document, 'visibilityState', { get: function () { return 'visible'; }, configurable: true });
+        Object.defineProperty(document, 'hidden', { get: function () { return false; }, configurable: true });
+    } catch (e) { }
 
     // 对任意 window 应用同样的屏蔽（用于 iframe）
     function blockEvents(win) {
@@ -37,14 +37,14 @@
         win.addEventListener('focusout', _block, true);
         win.addEventListener('visibilitychange', _block, true);
         try {
-            Object.defineProperty(win.document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-            Object.defineProperty(win.document, 'hidden', { get: function() { return false; }, configurable: true });
-        } catch(e) {}
+            Object.defineProperty(win.document, 'visibilityState', { get: function () { return 'visible'; }, configurable: true });
+            Object.defineProperty(win.document, 'hidden', { get: function () { return false; }, configurable: true });
+        } catch (e) { }
         // 移除 jQuery 的 blur 绑定（iframe 内 $(window).on('blur') -> pausePlayer）
         try {
             var jq = win.$ || win.jQuery;
             if (jq) { jq(win).off('blur'); jq(win.document).off('blur'); }
-        } catch(e) {}
+        } catch (e) { }
     }
 
     // =============================================
@@ -57,20 +57,20 @@
         v.loop = false;
 
         // 拦截暂停调用
-        v.pause = (function(orig) {
-            return function() {
+        v.pause = (function (orig) {
+            return function () {
                 if (v.ended || v._done) return orig.apply(this, arguments);
             };
         })(v.pause);
 
-        v.addEventListener('ended', function() { v._done = true; });
+        v.addEventListener('ended', function () { v._done = true; });
 
         // 主动开始播放
-        if (v.paused && !v.ended) v.play().catch(function(){});
+        if (v.paused && !v.ended) v.play().catch(function () { });
 
         console.log('[GOD] hackVideo: dur=' + Math.floor(v.duration || 0) + 's');
 
-        var timer = setInterval(function() {
+        var timer = setInterval(function () {
             // 完成判断
             if (v.ended || (v.duration > 0 && v.currentTime / v.duration > 0.999)) {
                 v._done = true;
@@ -83,7 +83,7 @@
             }
 
             // 确保播放
-            if (v.paused) v.play().catch(function(){});
+            if (v.paused) v.play().catch(function () { });
 
             // 加速：最后15秒回1x，其余16x+跳帧
             var remain = v.duration - v.currentTime;
@@ -110,42 +110,42 @@
             videos.forEach(hackVideo);
 
             // 递归进入 iframe
-            root.querySelectorAll('iframe').forEach(function(f) {
+            root.querySelectorAll('iframe').forEach(function (f) {
                 try {
                     var doc = null;
-                    try { doc = f.contentDocument; } catch(e1) {}
-                    if (!doc) try { doc = f.contentWindow.document; } catch(e2) {}
+                    try { doc = f.contentDocument; } catch (e1) { }
+                    if (!doc) try { doc = f.contentWindow.document; } catch (e2) { }
                     if (doc) {
                         // 直接在 iframe 里找 video
                         doc.querySelectorAll('video').forEach(hackVideo);
                         scan(doc);
                     }
-                } catch(e) {
+                } catch (e) {
                     // iframe 不可访问，尝试通过 contentWindow 注入
                     try {
                         var fw = f.contentWindow;
                         if (fw && fw.document) {
                             fw.document.querySelectorAll('video').forEach(hackVideo);
                         }
-                    } catch(e3) {}
+                    } catch (e3) { }
                 }
             });
-        } catch(e) {}
+        } catch (e) { }
     }
 
     // 检查是否有视频还在播放
     function isAnyVideoRunning(root) {
         try {
             var videos = Array.from(root.querySelectorAll('video'));
-            if (videos.some(function(v) { return !v.ended && !v._done; })) return true;
+            if (videos.some(function (v) { return !v.ended && !v._done; })) return true;
             var iframes = Array.from(root.querySelectorAll('iframe'));
             for (var i = 0; i < iframes.length; i++) {
                 try {
                     var doc = iframes[i].contentDocument || iframes[i].contentWindow.document;
                     if (doc && isAnyVideoRunning(doc)) return true;
-                } catch(e) {}
+                } catch (e) { }
             }
-        } catch(e) {}
+        } catch (e) { }
         return false;
     }
 
@@ -174,10 +174,10 @@
                 _amacHooked = true;
 
                 // 废掉 pausePlayer
-                mts.pausePlayer = function() {};
+                mts.pausePlayer = function () { };
 
                 // 解除拖拽限制
-                mts.player.canSeekable = function() { return 1; };
+                mts.player.canSeekable = function () { return 1; };
 
                 // 已完成的无需上报
                 if (vInfo.isFinish == 2) {
@@ -186,7 +186,7 @@
                 }
 
                 // 用 Aliplayer 接口启动播放
-                try { mts.player.play(); } catch(e) {}
+                try { mts.player.play(); } catch (e) { }
 
                 // 在 iframe 上下文中直接加速视频
                 // Tampermonkey 跨 iframe 设属性无效，必须用 iframe 自己的 setInterval
@@ -196,15 +196,15 @@
                         videoEl.muted = true;
                         // 拦截暂停
                         var origPause = videoEl.pause;
-                        videoEl.pause = function() {
+                        videoEl.pause = function () {
                             if (videoEl.ended || videoEl._done) return origPause.apply(this, arguments);
                         };
-                        videoEl.addEventListener('ended', function() { videoEl._done = true; });
+                        videoEl.addEventListener('ended', function () { videoEl._done = true; });
 
                         // 用 iframe 的 setInterval 执行加速循环
-                        fw.setInterval(function() {
+                        fw.setInterval(function () {
                             if (videoEl._done || videoEl.ended) return;
-                            if (videoEl.paused) try { videoEl.play(); } catch(e) {}
+                            if (videoEl.paused) try { videoEl.play(); } catch (e) { }
                             var remain = videoEl.duration - videoEl.currentTime;
                             if (remain < 15) {
                                 videoEl.playbackRate = 1.0;
@@ -218,12 +218,12 @@
                     } else {
                         console.log('[GOD] 未找到 video 元素');
                     }
-                } catch(e) {
+                } catch (e) {
                     console.log('[GOD] 视频加速失败:', e.message);
                 }
 
                 // 劫持 videoPlayEnd：禁止 seek(0)
-                mts.videoPlayEnd = function() {
+                mts.videoPlayEnd = function () {
                     mts.postProgress('Play End');
                     clearInterval(mts.pTimer);
                     // 不执行 seek(0) 和 pause()
@@ -236,14 +236,14 @@
                 var _completed = false;
                 var origPost = mts.postProgress.bind(mts);
 
-                mts.postProgress = function(type) {
+                mts.postProgress = function (type) {
                     var prev = vInfo.studySecond;
                     // 临时降低 studySecond 以绕过 "无需发送" 判断
                     vInfo.studySecond = Math.max(0, fakeTime - 5);
                     parentVI.studySecond = vInfo.studySecond;
                     // 临时替换 getCurrentTime
                     var origGT = mts.player.getCurrentTime;
-                    mts.player.getCurrentTime = function() { return fakeTime; };
+                    mts.player.getCurrentTime = function () { return fakeTime; };
 
                     origPost(type);
 
@@ -254,51 +254,82 @@
                 };
 
                 // 完成上报序列
+                var _confirmed = false; // 服务器确认完成
+
                 function triggerCompletion() {
                     if (_completed) return;
                     _completed = true;
                     fakeTime = duration;
                     console.log('[GOD] 触发完成上报序列...');
 
+                    // 确保 studySecond 先推到接近 duration
+                    parentVI.studySecond = Math.max(parentVI.studySecond, Math.floor(duration - 3));
+                    vInfo.studySecond = parentVI.studySecond;
+
                     // 1. 先通过 postProgress 上报 Play End
                     mts.postProgress('Play End');
 
-                    // 2. 延迟后直接调 playerLogUpdate(2) 标记完成
-                    setTimeout(function() {
+                    // 2. 延迟后调 playerLogUpdate(2)
+                    setTimeout(function () {
                         if (vInfo.isFinish != 2) {
                             try {
-                                parentVI.studySecond = Math.max(0, duration - 5);
                                 window.playerLogUpdate('2', duration);
-                                console.log('[GOD] playerLogUpdate(2) 完成!');
-                            } catch(e) {
+                                console.log('[GOD] playerLogUpdate(2) 已发送');
+                            } catch (e) {
                                 console.log('[GOD] playerLogUpdate(2) 失败:', e.message);
                             }
                         }
                     }, 2000);
 
-                    // 3. 再补一次确保
-                    setTimeout(function() {
-                        if (vInfo.isFinish != 2) {
-                            try {
-                                parentVI.studySecond = duration;
-                                vInfo.studySecond = duration;
-                                window.playerLogUpdate('2', duration);
-                                console.log('[GOD] playerLogUpdate(2) 二次确认!');
-                            } catch(e) {}
+                    // 3. 轮询验证服务器是否确认完成，未确认则重试
+                    var retryCount = 0;
+                    var verifyTimer = setInterval(function () {
+                        if (vInfo.isFinish == 2) {
+                            _confirmed = true;
+                            clearInterval(verifyTimer);
+                            console.log('[GOD] 服务器已确认完成! isFinish=2');
+                            return;
                         }
-                    }, 5000);
+
+                        retryCount++;
+                        console.log('[GOD] 等待服务器确认... 第' + retryCount + '次 (isFinish=' + vInfo.isFinish + ')');
+
+                        // 每次重试都重新上报
+                        if (retryCount % 2 === 0) {
+                            parentVI.studySecond = Math.floor(duration - 1);
+                            vInfo.studySecond = parentVI.studySecond;
+                            try {
+                                mts.postProgress('Play End');
+                            } catch (e) { }
+                        } else {
+                            parentVI.studySecond = Math.floor(duration);
+                            vInfo.studySecond = Math.floor(duration - 3);
+                            try {
+                                window.playerLogUpdate('2', duration);
+                            } catch (e) { }
+                        }
+
+                        // 最多重试 30 次（60秒）
+                        if (retryCount >= 30) {
+                            clearInterval(verifyTimer);
+                            console.log('[GOD] 警告: 30次重试后仍未确认完成，请手动检查');
+                        }
+                    }, 2000);
                 }
 
+                // 暴露确认状态给 autoClick 使用
+                window._amacConfirmed = function () { return _confirmed; };
+
                 // 每秒同步 fakeTime 到视频真实进度
-                var tickTimer = setInterval(function() {
+                var tickTimer = setInterval(function () {
                     if (_completed) { clearInterval(tickTimer); return; }
 
                     // 从视频元素获取真实播放位置
                     var realTime = 0;
                     try {
                         if (_videoRef) realTime = _videoRef.currentTime || 0;
-                    } catch(e) {
-                        try { realTime = mts.player.getCurrentTime() || 0; } catch(e2) {}
+                    } catch (e) {
+                        try { realTime = mts.player.getCurrentTime() || 0; } catch (e2) { }
                     }
 
                     // fakeTime 取最大值（只增不减）
@@ -316,34 +347,34 @@
                 // 监听视频 ended 事件 → 立即触发完成
                 try {
                     if (_videoRef) {
-                        _videoRef.addEventListener('ended', function() {
+                        _videoRef.addEventListener('ended', function () {
                             console.log('[GOD] 视频 ended 事件触发');
                             fakeTime = duration;
                             triggerCompletion();
                         });
                     }
-                } catch(e) {}
+                } catch (e) { }
 
                 // 每15秒 postProgress 上报（加密频次确保服务器收到足够进度）
-                var reportTimer = setInterval(function() {
+                var reportTimer = setInterval(function () {
                     if (_completed) { clearInterval(reportTimer); return; }
                     mts.postProgress('Interval-progress');
                 }, 15000);
 
                 // 每20秒直接 playerLogUpdate 双保险
-                var directTimer = setInterval(function() {
+                var directTimer = setInterval(function () {
                     if (_completed) { clearInterval(directTimer); return; }
                     var t = Math.floor(fakeTime);
                     parentVI.studySecond = Math.max(0, t - 5);
                     vInfo.studySecond = parentVI.studySecond;
-                    try { window.playerLogUpdate('1', t); } catch(e) {}
+                    try { window.playerLogUpdate('1', t); } catch (e) { }
                     parentVI.studySecond = t;
                     vInfo.studySecond = t;
                 }, 20000);
 
                 console.log('[GOD] AMAC Hook 完成: study=' + vInfo.studySecond + '/' + duration);
                 return;
-            } catch(e) {}
+            } catch (e) { }
         }
     }
 
@@ -359,12 +390,12 @@
 
             var running = isAnyVideoRunning(document);
 
-            document.querySelectorAll('button, a, .btn, [role="button"], .layui-layer-btn0, .layui-layer-btn a').forEach(function(el) {
+            document.querySelectorAll('button, a, .btn, [role="button"], .layui-layer-btn0, .layui-layer-btn a').forEach(function (el) {
                 var text = (el.innerText || '').replace(/\s+/g, '');
                 if (!text || el.offsetParent === null) return;
 
                 // 确认类
-                if (confirmKW.some(function(k) { return text.indexOf(k) !== -1; })) {
+                if (confirmKW.some(function (k) { return text.indexOf(k) !== -1; })) {
                     var now = Date.now();
                     if (!el._lc || now - el._lc > 5000) {
                         el._lc = now;
@@ -374,13 +405,20 @@
                     return;
                 }
 
-                // 导航类：视频还在跑就不点
-                if (navKW.some(function(k) { return text.indexOf(k) !== -1; })) {
+                // 导航类：视频还在跑 或 服务器未确认完成 就不点
+                if (navKW.some(function (k) { return text.indexOf(k) !== -1; })) {
                     if (running) return;
+                    // 等待服务器确认完成（isFinish==2）
+                    var confirmed = false;
+                    try { confirmed = window._amacConfirmed && window._amacConfirmed(); } catch(e) {}
+                    if (!confirmed) {
+                        // 没有 hook 过（非视频页面）也放行
+                        if (_amacHooked) return;
+                    }
                     if (!el._w) {
                         el._w = true;
-                        console.log('[GOD] 视频完成，15秒后跳转: ' + text);
-                        setTimeout(function() {
+                        console.log('[GOD] 服务器已确认完成，15秒后跳转: ' + text);
+                        setTimeout(function () {
                             el.click();
                             el._w = false;
                             _amacHooked = false; // 页面切换后需要重新 hook
@@ -388,13 +426,13 @@
                     }
                 }
             });
-        } catch(e) {}
+        } catch (e) { }
     }
 
     // =============================================
     // F. 主循环 — 立即启动，不等任何 DOM
     // =============================================
-    setInterval(function() {
+    setInterval(function () {
         scan(document);       // 发现并加速视频
         hookAmacProgress();   // hook AMAC 进度上报
         autoClick();          // 智能点击

@@ -29,7 +29,14 @@
     },
     "mac": {
       "target": "dmg",
-      "artifactName": "${productName}-Mac.dmg"
-    }
+      "artifactName": "${productName}-Mac.dmg",
+      "identity": null
+    },
+    "files": [
+      "main.js",
+      "amac_god_mode.user.js",
+      "automation_rules.js",
+      "package.json"
+    ]
   }
 }
