@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         AMAC培训助手
 // @namespace    http://tampermonkey.net/
-// @version      6.4
+// @version      7.0
 // @description  AMAC培训助手
-// @author       Claude自动完成并恶意传播
+// @author       Alone
 // @match        *://peixun.amac.org.cn/*
 // @grant        none
 // @run-at       document-start
@@ -12,12 +12,11 @@
 (function () {
     'use strict';
 
-    console.log('--- AMAC GOD MODE v6.4 ACTIVATED ---');
+    console.log('--- AMAC GOD MODE v7.0 ACTIVATED ---');
 
     // =============================================
-    // A. 焦点屏蔽 — 立即执行，不等任何 DOM
+    // A. 焦点屏蔽 — 立即执行
     // =============================================
-    // 在 document-start 阶段就拦截，确保比页面自身的 blur 处理器更早注册
     var _block = function (e) { e.stopImmediatePropagation(); return false; };
     window.addEventListener('blur', _block, true);
     window.addEventListener('mouseleave', _block, true);
@@ -28,7 +27,6 @@
         Object.defineProperty(document, 'hidden', { get: function () { return false; }, configurable: true });
     } catch (e) { }
 
-    // 对任意 window 应用同样的屏蔽（用于 iframe）
     function blockEvents(win) {
         if (win._blocked) return;
         win._blocked = true;
@@ -40,7 +38,6 @@
             Object.defineProperty(win.document, 'visibilityState', { get: function () { return 'visible'; }, configurable: true });
             Object.defineProperty(win.document, 'hidden', { get: function () { return false; }, configurable: true });
         } catch (e) { }
-        // 移除 jQuery 的 blur 绑定（iframe 内 $(window).on('blur') -> pausePlayer）
         try {
             var jq = win.$ || win.jQuery;
             if (jq) { jq(win).off('blur'); jq(win.document).off('blur'); }
@@ -48,92 +45,142 @@
     }
 
     // =============================================
-    // B. 视频加速 — 发现 <video> 就接管，不依赖任何框架
+    // B. XHR 监控 — 观察 log_update 响应
     // =============================================
-    function hackVideo(v) {
-        if (!v || v._hacked) return;
-        v._hacked = true;
-        v.muted = true;
-        v.loop = false;
+    var _origXHROpen = XMLHttpRequest.prototype.open;
+    var _origXHRSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (method, url) {
+        this._url = url;
+        return _origXHROpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function (body) {
+        if (this._url && this._url.indexOf('log_update') !== -1) {
+            this.addEventListener('load', function () {
+                console.log('[GOD] log_update 响应: ' + this.responseText);
+            });
+        }
+        return _origXHRSend.apply(this, arguments);
+    };
 
-        // 拦截暂停调用
-        v.pause = (function (orig) {
-            return function () {
-                if (v.ended || v._done) return orig.apply(this, arguments);
-            };
-        })(v.pause);
+    // =============================================
+    // C. AMAC Hook — 最小干预，让播放器自己上报
+    // =============================================
+    var _amacHooked = false;
+    var _amacFinished = false;
 
-        v.addEventListener('ended', function () { v._done = true; });
+    function hookAmacProgress() {
+        if (_amacHooked) return;
 
-        // 主动开始播放
-        if (v.paused && !v.ended) v.play().catch(function () { });
+        var iframes = document.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            try {
+                var fw = iframes[i].contentWindow;
+                if (!fw) continue;
+                var mts = fw.MtsWebAliPlayer;
+                if (!mts || !mts.player) continue;
+                var vInfo = mts._vInfo;
+                if (!vInfo) continue;
+                var duration = vInfo.duration || 0;
+                if (duration <= 0) continue;
 
-        console.log('[GOD] hackVideo: dur=' + Math.floor(v.duration || 0) + 's');
+                _amacHooked = true;
 
-        var timer = setInterval(function () {
-            // 完成判断
-            if (v.ended || (v.duration > 0 && v.currentTime / v.duration > 0.999)) {
-                v._done = true;
-            }
-            if (v._done) {
-                v.playbackRate = 1.0;
-                clearInterval(timer);
-                console.log('[GOD] 视频播放完成');
+                // 已完成的直接标记
+                if (vInfo.isFinish == 2) {
+                    _amacFinished = true;
+                    console.log('[GOD] 已完成，跳过 (isFinish=2)');
+                    return;
+                }
+
+                // 1. 废掉 pausePlayer（防止切标签暂停）
+                mts.pausePlayer = function () { };
+
+                // 2. 解除拖拽限制
+                mts.player.canSeekable = function () { return 1; };
+
+                // 3. 劫持 videoPlayEnd：禁止 seek(0) 重播，但保留原有上报
+                var origVideoPlayEnd = mts.videoPlayEnd.bind(mts);
+                mts.videoPlayEnd = function () {
+                    // 调原始的上报逻辑，但拦截 seek(0)
+                    var origSeek = mts.player.seek;
+                    mts.player.seek = function () { }; // 临时禁用 seek
+                    var origPlayerPause = mts.player.pause;
+                    mts.player.pause = function () { }; // 临时禁用 pause
+                    try {
+                        origVideoPlayEnd();
+                    } catch (e) { }
+                    mts.player.seek = origSeek;
+                    mts.player.pause = origPlayerPause;
+                    console.log('[GOD] videoPlayEnd 已执行（已拦截 seek/pause）');
+                };
+
+                // 4. 启动播放
+                try { mts.player.play(); } catch (e) { }
+
+                // 5. 在 iframe 上下文中加速视频
+                try {
+                    var videoEl = mts.player.tag || fw.document.querySelector('video');
+                    if (videoEl) {
+                        videoEl.muted = true;
+                        var origPause = videoEl.pause;
+                        videoEl.pause = function () {
+                            if (videoEl.ended || videoEl._done) return origPause.apply(this, arguments);
+                        };
+                        videoEl.addEventListener('ended', function () { videoEl._done = true; });
+
+                        fw.setInterval(function () {
+                            if (videoEl._done || videoEl.ended) return;
+                            if (videoEl.paused) try { videoEl.play(); } catch (e) { }
+                            var remain = videoEl.duration - videoEl.currentTime;
+                            if (remain < 45) {
+                                // 最后45秒原速播放 — 让播放器自己的进度上报自然完成
+                                videoEl.playbackRate = 1.0;
+                            } else {
+                                videoEl.playbackRate = 16.0;
+                                if (videoEl.readyState >= 2) videoEl.currentTime += 5.0;
+                            }
+                        }, 1000);
+
+                        console.log('[GOD] 视频加速已启动: dur=' + Math.floor(videoEl.duration || 0) + 's');
+                    }
+                } catch (e) {
+                    console.log('[GOD] 视频加速失败:', e.message);
+                }
+
+                // 6. 定期检查完成状态
+                var checkTimer = setInterval(function () {
+                    if (vInfo.isFinish == 2) {
+                        _amacFinished = true;
+                        clearInterval(checkTimer);
+                        console.log('[GOD] 服务器确认完成! isFinish=2');
+                    }
+                }, 2000);
+
+                console.log('[GOD] AMAC Hook 完成: study=' + vInfo.studySecond + '/' + duration);
                 return;
-            }
-
-            // 确保播放
-            if (v.paused) v.play().catch(function () { });
-
-            // 加速：最后15秒回1x，其余16x+跳帧
-            var remain = v.duration - v.currentTime;
-            if (remain < 15) {
-                if (v.playbackRate !== 1.0) v.playbackRate = 1.0;
-            } else {
-                if (v.playbackRate !== 16.0) v.playbackRate = 16.0;
-                if (v.readyState >= 2) v.currentTime += 5.0;
-            }
-        }, 1000);
+            } catch (e) { }
+        }
     }
 
     // =============================================
-    // C. 递归扫描 — 遍历 document + 所有 iframe
+    // D. 递归扫描
     // =============================================
     function scan(root) {
         try {
-            // 对此 window 屏蔽焦点事件
             var win = root.defaultView;
             if (win) blockEvents(win);
-
-            // 接管所有 video
-            var videos = root.querySelectorAll('video');
-            videos.forEach(hackVideo);
-
-            // 递归进入 iframe
             root.querySelectorAll('iframe').forEach(function (f) {
                 try {
                     var doc = null;
                     try { doc = f.contentDocument; } catch (e1) { }
                     if (!doc) try { doc = f.contentWindow.document; } catch (e2) { }
-                    if (doc) {
-                        // 直接在 iframe 里找 video
-                        doc.querySelectorAll('video').forEach(hackVideo);
-                        scan(doc);
-                    }
-                } catch (e) {
-                    // iframe 不可访问，尝试通过 contentWindow 注入
-                    try {
-                        var fw = f.contentWindow;
-                        if (fw && fw.document) {
-                            fw.document.querySelectorAll('video').forEach(hackVideo);
-                        }
-                    } catch (e3) { }
-                }
+                    if (doc) scan(doc);
+                } catch (e) { }
             });
         } catch (e) { }
     }
 
-    // 检查是否有视频还在播放
+    // 检查是否有视频在播放
     function isAnyVideoRunning(root) {
         try {
             var videos = Array.from(root.querySelectorAll('video'));
@@ -150,242 +197,11 @@
     }
 
     // =============================================
-    // D. AMAC 进度上报 — 独立于视频播放的第二层
-    // =============================================
-    var _amacHooked = false;
-
-    function hookAmacProgress() {
-        if (_amacHooked) return;
-
-        // 找 MtsWebAliPlayer
-        var iframes = document.querySelectorAll('iframe');
-        for (var i = 0; i < iframes.length; i++) {
-            try {
-                var fw = iframes[i].contentWindow;
-                if (!fw) continue;
-                var mts = fw.MtsWebAliPlayer;
-                if (!mts || !mts.player) continue;
-                var vInfo = mts._vInfo;
-                var parentVI = window.videoInfo;
-                if (!vInfo || !parentVI) continue;
-                var duration = vInfo.duration || 0;
-                if (duration <= 0) continue;
-
-                _amacHooked = true;
-
-                // 废掉 pausePlayer
-                mts.pausePlayer = function () { };
-
-                // 解除拖拽限制
-                mts.player.canSeekable = function () { return 1; };
-
-                // 已完成的无需上报
-                if (vInfo.isFinish == 2) {
-                    console.log('[GOD] AMAC: isFinish=2, 跳过');
-                    return;
-                }
-
-                // 用 Aliplayer 接口启动播放
-                try { mts.player.play(); } catch (e) { }
-
-                // 在 iframe 上下文中直接加速视频
-                // Tampermonkey 跨 iframe 设属性无效，必须用 iframe 自己的 setInterval
-                try {
-                    var videoEl = mts.player.tag || fw.document.querySelector('video');
-                    if (videoEl) {
-                        videoEl.muted = true;
-                        // 拦截暂停
-                        var origPause = videoEl.pause;
-                        videoEl.pause = function () {
-                            if (videoEl.ended || videoEl._done) return origPause.apply(this, arguments);
-                        };
-                        videoEl.addEventListener('ended', function () { videoEl._done = true; });
-
-                        // 用 iframe 的 setInterval 执行加速循环
-                        fw.setInterval(function () {
-                            if (videoEl._done || videoEl.ended) return;
-                            if (videoEl.paused) try { videoEl.play(); } catch (e) { }
-                            var remain = videoEl.duration - videoEl.currentTime;
-                            if (remain < 15) {
-                                videoEl.playbackRate = 1.0;
-                            } else {
-                                videoEl.playbackRate = 16.0;
-                                if (videoEl.readyState >= 2) videoEl.currentTime += 5.0;
-                            }
-                        }, 1000);
-
-                        console.log('[GOD] 视频加速已启动: dur=' + Math.floor(videoEl.duration || 0) + 's, 使用 iframe 上下文');
-                    } else {
-                        console.log('[GOD] 未找到 video 元素');
-                    }
-                } catch (e) {
-                    console.log('[GOD] 视频加速失败:', e.message);
-                }
-
-                // 劫持 videoPlayEnd：禁止 seek(0)
-                mts.videoPlayEnd = function () {
-                    mts.postProgress('Play End');
-                    clearInterval(mts.pTimer);
-                    // 不执行 seek(0) 和 pause()
-                };
-
-                // 劫持 postProgress：用伪造的学习时间
-                // fakeTime 跟踪视频真实播放进度，而不是每秒+1
-                var fakeTime = parseInt(vInfo.studySecond) || 0;
-                var _videoRef = mts.player.tag || fw.document.querySelector('video');
-                var _completed = false;
-                var origPost = mts.postProgress.bind(mts);
-
-                mts.postProgress = function (type) {
-                    var prev = vInfo.studySecond;
-                    // 临时降低 studySecond 以绕过 "无需发送" 判断
-                    vInfo.studySecond = Math.max(0, fakeTime - 5);
-                    parentVI.studySecond = vInfo.studySecond;
-                    // 临时替换 getCurrentTime
-                    var origGT = mts.player.getCurrentTime;
-                    mts.player.getCurrentTime = function () { return fakeTime; };
-
-                    origPost(type);
-
-                    mts.player.getCurrentTime = origGT;
-                    vInfo.studySecond = Math.max(prev, fakeTime);
-                    parentVI.studySecond = vInfo.studySecond;
-                    console.log('[GOD] postProgress(' + type + ') fake=' + Math.floor(fakeTime) + '/' + duration);
-                };
-
-                // 完成上报序列
-                var _confirmed = false; // 服务器确认完成
-
-                function triggerCompletion() {
-                    if (_completed) return;
-                    _completed = true;
-                    fakeTime = duration;
-                    console.log('[GOD] 触发完成上报序列...');
-
-                    // 确保 studySecond 先推到接近 duration
-                    parentVI.studySecond = Math.max(parentVI.studySecond, Math.floor(duration - 3));
-                    vInfo.studySecond = parentVI.studySecond;
-
-                    // 1. 先通过 postProgress 上报 Play End
-                    mts.postProgress('Play End');
-
-                    // 2. 延迟后调 playerLogUpdate(2)
-                    setTimeout(function () {
-                        if (vInfo.isFinish != 2) {
-                            try {
-                                window.playerLogUpdate('2', duration);
-                                console.log('[GOD] playerLogUpdate(2) 已发送');
-                            } catch (e) {
-                                console.log('[GOD] playerLogUpdate(2) 失败:', e.message);
-                            }
-                        }
-                    }, 2000);
-
-                    // 3. 轮询验证服务器是否确认完成，未确认则重试
-                    var retryCount = 0;
-                    var verifyTimer = setInterval(function () {
-                        if (vInfo.isFinish == 2) {
-                            _confirmed = true;
-                            clearInterval(verifyTimer);
-                            console.log('[GOD] 服务器已确认完成! isFinish=2');
-                            return;
-                        }
-
-                        retryCount++;
-                        console.log('[GOD] 等待服务器确认... 第' + retryCount + '次 (isFinish=' + vInfo.isFinish + ')');
-
-                        // 每次重试都重新上报
-                        if (retryCount % 2 === 0) {
-                            parentVI.studySecond = Math.floor(duration - 1);
-                            vInfo.studySecond = parentVI.studySecond;
-                            try {
-                                mts.postProgress('Play End');
-                            } catch (e) { }
-                        } else {
-                            parentVI.studySecond = Math.floor(duration);
-                            vInfo.studySecond = Math.floor(duration - 3);
-                            try {
-                                window.playerLogUpdate('2', duration);
-                            } catch (e) { }
-                        }
-
-                        // 最多重试 30 次（60秒）
-                        if (retryCount >= 30) {
-                            clearInterval(verifyTimer);
-                            console.log('[GOD] 警告: 30次重试后仍未确认完成，请手动检查');
-                        }
-                    }, 2000);
-                }
-
-                // 暴露确认状态给 autoClick 使用
-                window._amacConfirmed = function () { return _confirmed; };
-
-                // 每秒同步 fakeTime 到视频真实进度
-                var tickTimer = setInterval(function () {
-                    if (_completed) { clearInterval(tickTimer); return; }
-
-                    // 从视频元素获取真实播放位置
-                    var realTime = 0;
-                    try {
-                        if (_videoRef) realTime = _videoRef.currentTime || 0;
-                    } catch (e) {
-                        try { realTime = mts.player.getCurrentTime() || 0; } catch (e2) { }
-                    }
-
-                    // fakeTime 取最大值（只增不减）
-                    fakeTime = Math.max(fakeTime, realTime);
-                    if (fakeTime > duration) fakeTime = duration;
-
-                    console.log('[GOD] tick: fake=' + Math.floor(fakeTime) + '/' + duration + ' real=' + Math.floor(realTime));
-
-                    // 视频播完 → 触发完成
-                    if (fakeTime >= duration - 1) {
-                        triggerCompletion();
-                    }
-                }, 1000);
-
-                // 监听视频 ended 事件 → 立即触发完成
-                try {
-                    if (_videoRef) {
-                        _videoRef.addEventListener('ended', function () {
-                            console.log('[GOD] 视频 ended 事件触发');
-                            fakeTime = duration;
-                            triggerCompletion();
-                        });
-                    }
-                } catch (e) { }
-
-                // 每15秒 postProgress 上报（加密频次确保服务器收到足够进度）
-                var reportTimer = setInterval(function () {
-                    if (_completed) { clearInterval(reportTimer); return; }
-                    mts.postProgress('Interval-progress');
-                }, 15000);
-
-                // 每20秒直接 playerLogUpdate 双保险
-                var directTimer = setInterval(function () {
-                    if (_completed) { clearInterval(directTimer); return; }
-                    var t = Math.floor(fakeTime);
-                    parentVI.studySecond = Math.max(0, t - 5);
-                    vInfo.studySecond = parentVI.studySecond;
-                    try { window.playerLogUpdate('1', t); } catch (e) { }
-                    parentVI.studySecond = t;
-                    vInfo.studySecond = t;
-                }, 20000);
-
-                console.log('[GOD] AMAC Hook 完成: study=' + vInfo.studySecond + '/' + duration);
-                return;
-            } catch (e) { }
-        }
-    }
-
-    // =============================================
-    // E. 智能点击 — 弹窗处理 + 导航
+    // E. 智能点击
     // =============================================
     function autoClick() {
         try {
-            // 确认类关键词：立即点击
             var confirmKW = ['确定', '确认', '继续学习', '继续', '好的', '我知道了', '知道了', '同意', '可以看，不需要'];
-            // 导航类关键词：视频完成后才点
             var navKW = ['下一节', '下一题', '进入测验', '开始练习', '去评价', '提交', '完成', '结束', '评价'];
 
             var running = isAnyVideoRunning(document);
@@ -394,7 +210,6 @@
                 var text = (el.innerText || '').replace(/\s+/g, '');
                 if (!text || el.offsetParent === null) return;
 
-                // 确认类
                 if (confirmKW.some(function (k) { return text.indexOf(k) !== -1; })) {
                     var now = Date.now();
                     if (!el._lc || now - el._lc > 5000) {
@@ -405,24 +220,19 @@
                     return;
                 }
 
-                // 导航类：视频还在跑 或 服务器未确认完成 就不点
                 if (navKW.some(function (k) { return text.indexOf(k) !== -1; })) {
                     if (running) return;
-                    // 等待服务器确认完成（isFinish==2）
-                    var confirmed = false;
-                    try { confirmed = window._amacConfirmed && window._amacConfirmed(); } catch(e) {}
-                    if (!confirmed) {
-                        // 没有 hook 过（非视频页面）也放行
-                        if (_amacHooked) return;
-                    }
+                    // 有视频的页面：必须等服务器确认完成
+                    if (_amacHooked && !_amacFinished) return;
                     if (!el._w) {
                         el._w = true;
-                        console.log('[GOD] 服务器已确认完成，15秒后跳转: ' + text);
+                        console.log('[GOD] 准备跳转: ' + text);
                         setTimeout(function () {
                             el.click();
                             el._w = false;
-                            _amacHooked = false; // 页面切换后需要重新 hook
-                        }, 15000);
+                            _amacHooked = false;
+                            _amacFinished = false;
+                        }, 5000);
                     }
                 }
             });
@@ -430,12 +240,12 @@
     }
 
     // =============================================
-    // F. 主循环 — 立即启动，不等任何 DOM
+    // F. 主循环
     // =============================================
     setInterval(function () {
-        scan(document);       // 发现并加速视频
-        hookAmacProgress();   // hook AMAC 进度上报
-        autoClick();          // 智能点击
+        scan(document);
+        hookAmacProgress();
+        autoClick();
     }, 2500);
 
 })();
