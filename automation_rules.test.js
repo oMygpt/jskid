@@ -2,8 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  chooseNextPlayableSection,
   decideAutoClick,
   detectPageMode,
+  detectSectionKind,
+  shouldTriggerRewindFallback,
 } = require('./automation_rules');
 
 test('detectPageMode marks quiz pages from question text', () => {
@@ -64,4 +67,53 @@ test('decideAutoClick allows navigation after grace period ends', () => {
     action: 'navigate',
     reason: 'ready',
   });
+});
+
+test('detectSectionKind marks quiz and evaluation sections as skippable kinds', () => {
+  assert.equal(detectSectionKind('章节测验：基金销售适当性'), 'quiz');
+  assert.equal(detectSectionKind('课后评价'), 'evaluation');
+  assert.equal(detectSectionKind('第一节 视频学习'), 'video');
+});
+
+test('chooseNextPlayableSection skips quiz items and returns next unfinished video', () => {
+  const section = chooseNextPlayableSection([
+    { text: '第一节 视频学习', completed: true },
+    { text: '章节测验', completed: false },
+    { text: '第二节 视频学习', completed: false },
+    { text: '课后评价', completed: false },
+  ], 0);
+
+  assert.deepEqual(section, {
+    index: 2,
+    text: '第二节 视频学习',
+    kind: 'video',
+  });
+});
+
+test('shouldTriggerRewindFallback returns true after confirmation timeout', () => {
+  const shouldRewind = shouldTriggerRewindFallback({
+    anyVideoRunning: false,
+    lastVideoFinishedAt: 10_000,
+    now: 50_500,
+    serverConfirmedAt: 0,
+    fallbackAttempts: 0,
+    completionTimeoutMs: 30_000,
+    maxFallbackAttempts: 2,
+  });
+
+  assert.equal(shouldRewind, true);
+});
+
+test('shouldTriggerRewindFallback stops after max fallback attempts', () => {
+  const shouldRewind = shouldTriggerRewindFallback({
+    anyVideoRunning: false,
+    lastVideoFinishedAt: 10_000,
+    now: 50_500,
+    serverConfirmedAt: 0,
+    fallbackAttempts: 2,
+    completionTimeoutMs: 30_000,
+    maxFallbackAttempts: 2,
+  });
+
+  assert.equal(shouldRewind, false);
 });

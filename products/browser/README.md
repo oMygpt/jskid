@@ -1,7 +1,7 @@
 # Browser Track
 
 ## Current Version
-- `1.0.0`
+- `1.1.0`
 - Source of truth: `package.json`
 
 ## Management Mode

@@ -1,7 +1,7 @@
 {
   "userscript": {
     "displayName": "AMAC培训助手 UserScript",
-    "currentVersion": "7.0",
+    "currentVersion": "7.2",
     "versionSource": "amac_god_mode.user.js:@version",
     "managementMode": "manual-semver",
     "releaseChannel": "Tampermonkey file distribution",
@@ -9,7 +9,7 @@
   },
   "browser": {
     "displayName": "AMAC光速浏览器",
-    "currentVersion": "1.0.0",
+    "currentVersion": "1.1.0",
     "versionSource": "package.json:version",
     "managementMode": "git-tag-plus-github-release",
     "releaseTagPattern": "browser-v<version>",

@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-// 读取注入脚本
+// 读取注入脚本（v7.2 GOD MODE）
 const SCRIPT_PATH = path.join(__dirname, 'amac_god_mode.user.js');
 let injectScript = '';
 try {
@@ -18,27 +18,26 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 900,
-    title: 'AMAC 培训光速浏览器',
+    title: 'AMAC 培训光速浏览器 v1.1',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      // 不使用 preload，直接通过 executeJavaScript 注入
+      preload: path.join(__dirname, 'preload.js'),
     }
   });
 
-  // 每个页面（含 iframe）加载完成后注入脚本
+  // 每个页面（含 iframe）加载完成后注入 GOD MODE 脚本
   win.webContents.on('did-finish-load', () => {
     if (injectScript) {
-      win.webContents.executeJavaScript(injectScript).catch(() => {});
-      console.log('[MAIN] 脚本已注入到主页面');
+      win.webContents.executeJavaScript(injectScript).catch(() => { });
+      console.log('[MAIN] GOD MODE v7.2 已注入到主页面');
     }
   });
 
   // iframe 内容加载完成也注入（确保 iframe 内的视频被接管）
   win.webContents.on('did-frame-finish-load', (event, isMainFrame) => {
     if (!isMainFrame && injectScript) {
-      // 对所有 frame 注入焦点屏蔽和视频加速
-      win.webContents.executeJavaScript(injectScript).catch(() => {});
+      win.webContents.executeJavaScript(injectScript).catch(() => { });
     }
   });
 

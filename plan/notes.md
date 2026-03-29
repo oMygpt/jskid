@@ -1,39 +1,63 @@
-# Notes: Repository Normalization
+# Notes: AMAC Completion Stability Investigation
 
-## Current Product Tracks
-- Userscript track:
-  - Runtime file: `amac_god_mode.user.js`
-  - Current version source: UserScript header `@version 7.0`
-  - Shared rule engine: `automation_rules.js`
-- Browser track:
-  - Runtime files: `main.js`, `package.json`
-  - Current app version source: `package.json` version `1.0.0`
-  - Packaging output: `dist/`
-- Web track:
-  - No deployed code scaffold exists yet in the repository
-  - Needs version placeholder, TODO list, and Vercel-oriented management note
+## Sources Reviewed
+- `amac_god_mode.user.js`
+- `automation_rules.js`
+- `automation_rules.test.js`
+- `preload.js`
+- `docs/history/6.3.md`
+- `readme.md`
+- memory summary for `amac-auto-browser-quiz-completion-guards`
 
-## Repository State
-- Git branch: `master`
-- Remote: `origin -> git@github.com:oMygpt/jskid.git`
-- Historical docs are being normalized into `docs/history/` and `docs/specs/`
-- Screenshots are being normalized into `assets/screenshots/`
+## Current Behavior in `v7.0`
+- The userscript observes `log_update` XHR responses but does not actively trigger completion APIs.
+- Navigation is blocked until `_amacFinished` becomes `true`, which currently depends on `vInfo.isFinish == 2`.
+- Video acceleration is still aggressive: early segment runs at `16.0x` with periodic `currentTime += 5.0`, then the last 45 seconds fall back to `1.0x`.
+- Auto-click is page-global and button-text driven. It has no concept of `current section`, `next playable section`, or `quiz item in course outline`.
 
-## Release and Governance Notes
-- Browser Windows release should be automated through GitHub Actions.
-- Userscript, browser, and web should each have:
-  - current version
-  - management mode
-  - feature list
-  - TODO list
-- Existing memory indicates quiz pages must block auto refresh/navigation, and completion grace period must be preserved.
+## Regression vs Historical `6.3`
+- `docs/history/6.3.md` shows an explicit completion sequence:
+  - patched `mts.postProgress(...)`
+  - periodic keepalive reporting
+  - direct `window.playerLogUpdate('1', t)` during playback
+  - direct `window.playerLogUpdate('2', duration)` near completion
+- `readme.md` still documents this stronger handshake path, but current `v7.0` no longer implements it.
+- This means the documentation still promises a stronger completion mechanism than the code now provides.
 
-## Verification Notes
-- Local verification can cover `node --test automation_rules.test.js` and workflow YAML existence.
-- Local `npm test` passed.
-- GitHub push to `origin/master` succeeded.
-- Tag `browser-v1.0.0` was pushed successfully.
-- GitHub Actions run `23707583796` succeeded for `Release Browser Windows`.
-- Release URL: `https://github.com/oMygpt/jskid/releases/tag/browser-v1.0.0`
-- Uploaded Windows asset URL: `https://github.com/oMygpt/jskid/releases/download/browser-v1.0.0/AMAC.-Windows.exe`
-- Vercel deployment still has not been implemented or verified.
+## Main Hypotheses
+1. Completion misses are primarily caused by handshake regression.
+   - Current code waits for server confirmation but no longer forces a completion report when natural reporting is skipped or delayed.
+2. Playback remains too aggressive before the tail section.
+   - `16.0x` plus manual `currentTime` jumps may reduce the chance that the platform records enough intermediate progress.
+3. Course traversal is under-modeled.
+   - The script can click generic `下一节`, but it cannot inspect the course outline and deliberately skip `测验` items or dead-end UI states.
+
+## Design Implications
+- Reintroduce an explicit `completion handshake` layer, but gate it carefully to avoid over-calling completion APIs.
+- Add a `confirmation timeout -> fallback rewind` branch:
+  - if video ended but `isFinish != 2` after a bounded wait, rewind to an earlier stable point and replay at slower speed.
+- Add `section discovery` based on DOM text and active-state detection:
+  - find current section
+  - locate next unfinished playable video item
+  - skip entries whose text looks like quiz/exam/test
+
+## Validation Targets for Implementation
+- Shared tests for navigation policy:
+  - quiz pages stay blocked
+  - confirmation timeout triggers fallback instead of blind next-step navigation
+  - next playable section selection skips quiz items
+- Runtime logs:
+  - `postProgress`
+  - `playerLogUpdate(1)`
+  - `playerLogUpdate(2)`
+  - fallback rewind triggered / succeeded / exhausted
+  - chosen next section title
+
+## Implementation Status
+- `automation_rules.js` now exposes `detectSectionKind`, `chooseNextPlayableSection`, and `shouldTriggerRewindFallback`.
+- `automation_rules.test.js` covers quiz/evaluation section classification, section skipping, and rewind timeout behavior.
+- `amac_god_mode.user.js` now:
+  - restores direct completion reporting with guarded `playerLogUpdate`
+  - slows down the playback profile and removes continuous `currentTime` jumping
+  - rewinds and replays slowly when completion confirmation times out
+  - prefers next unfinished video sections over quiz/evaluation sections

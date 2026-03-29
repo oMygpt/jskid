@@ -1,26 +1,29 @@
-# Task Plan: Repository Normalization for JS, Browser, and Web Tracks
+# Task Plan: AMAC Userscript Completion Stability
 
 ## Goal
-Normalize this repository into a clear three-track workspace covering the Tampermonkey userscript, the packaged Electron browser, and the Vercel web release page, with contributor guidance, version governance, and GitHub release automation.
+Diagnose why `amac_god_mode.user.js` has a non-trivial completion miss rate and produce a concrete design for improving completion confirmation, slower tail playback, and section-level auto-advance without breaking quiz guards.
 
 ## Phases
-- [x] Phase 1: Inspect current repository state, versions, and release gaps
-- [x] Phase 2: Define target structure and product governance
-- [x] Phase 3: Implement repository files and workflow automation
-- [x] Phase 4: Verify commands, document limits, and deliver summary
+- [x] Phase 1: Inspect current userscript, shared rule engine, and historical versions
+- [x] Phase 2: Identify symptom, cause hypotheses, and contract drift
+- [x] Phase 3: Produce prioritized design options and rollout plan
+- [x] Phase 4: Implement userscript and shared-rule changes
+- [ ] Phase 5: Run live smoke verification on a real AMAC course page
 
 ## Key Questions
-1. Which files are current sources of truth for userscript and browser versions?
-2. How should browser release automation map to GitHub Releases?
-3. What structure best represents the web/Vercel track before app code exists?
+1. Why did the current `v7.0` userscript regress relative to the historical completion flow?
+2. What is the safest recovery path when the server does not confirm completion after video end?
+3. How should the script move to the next playable video section while still treating quiz pages as no-auto-navigation zones?
 
 ## Decisions Made
-- The repo will be managed as one Git repository with three product tracks.
-- Browser release automation will target Windows builds first.
-- Existing runtime files stay at the repository root for now to avoid breaking the current Electron build.
+- Treat this as a `completion handshake + page state machine` problem, not only a playback speed problem.
+- Keep `quiz mode` as a hard guardrail: no auto refresh, no auto submit, no auto navigation inside quiz pages.
+- Recommend restoring explicit completion signaling before adding more aggressive fallback navigation.
+- Treat rewind replay as a fallback path after confirmation timeout, not as the primary completion strategy.
 
 ## Errors Encountered
-- `gh repo create` reported `Unable to add remote "origin"` because `origin` had already been created manually; the repository creation itself still succeeded.
+- No runtime errors were reproduced in this turn because the task is limited to static code review and design.
+- Existing `plan/task_plan.md` was from an older repository-normalization task and has been replaced with the current investigation plan.
 
 ## Status
-**Completed** - Repository structure, product governance docs, GitHub remote sync, and the Windows release workflow have all been completed and verified.
+**Currently in Phase 5** - Shared-rule tests and userscript syntax checks are complete. Live AMAC smoke verification is still pending.

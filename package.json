@@ -1,6 +1,6 @@
 {
   "name": "amac-auto-browser",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AMAC 培训专用自动化浏览器",
   "main": "main.js",
   "author": "Alone",
@@ -39,6 +39,7 @@
     },
     "files": [
       "main.js",
+      "preload.js",
       "amac_god_mode.user.js",
       "automation_rules.js",
       "package.json"

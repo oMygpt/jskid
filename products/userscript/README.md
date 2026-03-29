@@ -1,7 +1,7 @@
 # Userscript Track
 
 ## Current Version
-- `7.0`
+- `7.2`
 - Source of truth: `amac_god_mode.user.js` header `@version`
 
 ## Management Mode
