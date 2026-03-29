@@ -15,7 +15,7 @@
 
 ## Repository State
 - Git branch: `master`
-- Remote: still not configured because `.git/config` is not writable in this sandbox
+- Remote: `origin -> git@github.com:oMygpt/jskid.git`
 - Historical docs are being normalized into `docs/history/` and `docs/specs/`
 - Screenshots are being normalized into `assets/screenshots/`
 
@@ -30,5 +30,10 @@
 
 ## Verification Notes
 - Local verification can cover `node --test automation_rules.test.js` and workflow YAML existence.
-- GitHub remote push, release publication, and Vercel deployment cannot be verified from this sandboxed session.
-- Attempting `git remote add origin https://github.com/oMygpt/jskid.git` failed with `could not lock config file .git/config: Operation not permitted`.
+- Local `npm test` passed.
+- GitHub push to `origin/master` succeeded.
+- Tag `browser-v1.0.0` was pushed successfully.
+- GitHub Actions run `23707583796` succeeded for `Release Browser Windows`.
+- Release URL: `https://github.com/oMygpt/jskid/releases/tag/browser-v1.0.0`
+- Uploaded Windows asset URL: `https://github.com/oMygpt/jskid/releases/download/browser-v1.0.0/AMAC.-Windows.exe`
+- Vercel deployment still has not been implemented or verified.
