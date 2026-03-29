@@ -1,0 +1,53 @@
+name: Release Browser Windows
+
+on:
+  push:
+    tags:
+      - "browser-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="${GITHUB_REF_NAME#browser-v}"
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "Tag browser-v$TAG does not match package.json version $VERSION"
+            exit 1
+          fi
+
+      - name: Build Windows artifact
+        run: npm run dist-win
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Browser ${{ github.ref_name }}
+          files: |
+            dist/*.exe

@@ -1,0 +1,27 @@
+{
+  "userscript": {
+    "displayName": "AMAC培训助手 UserScript",
+    "currentVersion": "7.0",
+    "versionSource": "amac_god_mode.user.js:@version",
+    "managementMode": "manual-semver",
+    "releaseChannel": "Tampermonkey file distribution",
+    "status": "active"
+  },
+  "browser": {
+    "displayName": "AMAC光速浏览器",
+    "currentVersion": "1.0.0",
+    "versionSource": "package.json:version",
+    "managementMode": "git-tag-plus-github-release",
+    "releaseTagPattern": "browser-v<version>",
+    "releaseChannel": "GitHub Release Windows asset",
+    "status": "active"
+  },
+  "web": {
+    "displayName": "AMAC 发布页",
+    "currentVersion": "0.1.0",
+    "versionSource": "products/version-registry.json",
+    "managementMode": "docs-first-vercel-track",
+    "releaseChannel": "Vercel deployment",
+    "status": "planned"
+  }
+}

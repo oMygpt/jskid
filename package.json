@@ -4,7 +4,12 @@
   "description": "AMAC 培训专用自动化浏览器",
   "main": "main.js",
   "author": "Alone",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oMygpt/jskid.git"
+  },
   "scripts": {
+    "test": "node --test automation_rules.test.js",
     "start": "electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
